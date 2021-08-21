@@ -140,10 +140,6 @@ class SimpleConstraintAIPlayer(Player):
             return Suggestion(self.name, s['person'], s['weapon'], s['room'])
 
 
-# ideas for other AI players
-#   choose based on new information? like cards not seen before?
-#   model other players hands and choose based on their info? not sure if this helps
-
 class BetterConstraintAIPlayer(SimpleConstraintAIPlayer):
     """ keep track of what card other players have revealed. """
 
@@ -185,17 +181,19 @@ class Win(Exception):
 
 
 class Clue:
-    players = []
-    board = []
-    clues = []
-    events = []
-
     people = ('scarlet', 'plum', 'green', 'mustard', 'white', 'blue')
     weapons = ('pipe', 'knife', 'candlestick', 'rope', 'gun', 'wrench')
     rooms = ('dining', 'kitchen', 'billiards', 'ball',
              'hall', 'conservatory', 'library', 'study', 'lounge')
 
-    full_deck = list(people + weapons + rooms)
+    full_deck = people + weapons + rooms
+
+    def __init__(self, *args, **kwargs):
+        self.players = []
+        self.events = []
+        self.clues = None
+        self.turncount = 0
+        self.setup(*args, **kwargs)
 
     def setup(self, n_real_players=1, n_players=4, aiplayer=itertools.cycle([SimpleConstraintAIPlayer])):
         people, weapons, rooms = list(Clue.people), list(
@@ -295,28 +293,49 @@ class Clue:
                     return self
 
 
-if __name__ == '__main__':
-    # c = Clue()
-    # c.setup(n_real_players=0)
-    # c.run()
-    n_runs = 100
-
+def run_experiment(n_runs=100, **kwargs):
     import sys
     import time
+
     with open('test.log', 'w') as f:
         _stdout = sys.stdout
         sys.stdout = f
         t1 = time.time()
-        runs = [Clue().setup(n_real_players=0, aiplayer=itertools.cycle([BetterConstraintAIPlayer, SimpleConstraintAIPlayer, SimpleConstraintAIPlayer, SimpleConstraintAIPlayer])).run()
+        runs = [Clue(**kwargs).run()
                 for i in range(n_runs)]
         t2 = time.time()
         sys.stdout = _stdout
 
+    print(kwargs)
     print(n_runs, 'runs in', t2 - t1, 'average = ', (t2 - t1) / n_runs)
-    print('Average Turns: ', sum(r.turncount for r in runs) / len(runs))
+    avg_turns = sum(r.turncount for r in runs) / len(runs)
+    print('Average Turns: ', avg_turns)
     wins = {}
     for r in runs:
         wins.setdefault(str(r.winner), 0)
         wins[str(r.winner)] += 1
 
     print('Wins:', wins)
+    return wins, avg_turns
+
+
+if __name__ == '__main__':
+    # c = Clue(n_real_players=0)
+    # c.run()
+    onegoodplayer = itertools.cycle(
+        [BetterConstraintAIPlayer, SimpleConstraintAIPlayer, SimpleConstraintAIPlayer])
+    allgoodplayer = itertools.cycle([BetterConstraintAIPlayer])
+    nogoodplayer = itertools.cycle([SimpleConstraintAIPlayer])
+
+    run_experiment(n_runs=1000, n_real_players=0,
+                   n_players=3, aiplayer=nogoodplayer)
+    run_experiment(n_runs=1000, n_real_players=0,
+                   n_players=3, aiplayer=onegoodplayer)
+    run_experiment(n_runs=1000, n_real_players=0,
+                   n_players=3, aiplayer=allgoodplayer)
+    run_experiment(n_runs=100, n_real_players=0,
+                   n_players=4, aiplayer=onegoodplayer)
+    run_experiment(n_runs=100, n_real_players=0,
+                   n_players=5, aiplayer=onegoodplayer)
+    run_experiment(n_runs=100, n_real_players=0,
+                   n_players=6, aiplayer=onegoodplayer)
