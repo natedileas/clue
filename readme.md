@@ -6,17 +6,33 @@ I didn't want to deal with board movement, so I just assumed that it averages ou
 
 It works like this:
 
-# TODO seed
-
 ```
 >>> import clue
 >>> import itertools
 >>> nogoodplayer = itertools.cycle([clue.SimpleConstraintAIPlayer])
->>> clue.run_experiment(n_runs=1000, n_real_players=0, n_players=3, aiplayer=nogoodplayer)
-{'n_real_players': 0, 'n_players': 3, 'aiplayer': <itertools.cycle object at 0x000001E4DB67A3B8>}
-1000 runs in 8.0968759059906 average =  0.0080968759059906
-Average Turns:  39.887
-Wins: {'0': 318, '2': 320, '1': 362}
-({'0': 318, '2': 320, '1': 362}, 39.887)
+>>> onegoodplayer = itertools.cycle(
+        [BetterConstraintAIPlayer, SimpleConstraintAIPlayer, SimpleConstraintAIPlayer])
+>>> twogoodplayer = itertools.cycle([BetterConstraintAIPlayer, BetterConstraintAIPlayer, SimpleConstraintAIPlayer])
+>>> clue.run_experiment(n_runs=1000, n_real_players=0, n_players=3, aiplayer=nogoodplayer, seed=0)
+{'kwargs': {'n_real_players': 0, 'n_players': 3, 'aiplayer': <itertools.cycle object at 0x...>, 'seed': 0, 'n_runs': 1000}, 'avg_turns': 40.0, 'wins': {'0': 325, '1': 352, '2': 323}}
+>>> clue.run_experiment(n_runs=1000, n_real_players=0, n_players=3, aiplayer=onegoodplayer, seed=0)
+{'kwargs': {'n_real_players': 0, 'n_players': 3, 'aiplayer': <itertools.cycle object at 0x...>, 'seed': 0, 'n_runs': 1000}, 'avg_turns': 38.8, 'wins': {'1': 234, '2': 247, '0': 519}}
+>>> run_experiment(n_runs=1000, n_real_players=0, n_players=3, aiplayer=twogoodplayer, seed=0)
+{'kwargs': {'n_real_players': 0, 'n_players': 3, 'aiplayer': <itertools.cycle object at 0x...>, 'seed': 0, 'n_runs': 1000}, 'avg_turns': 38.1, 'wins': {'0': 421, '2': 188, '1': 391}}
 
 ```
+
+Generally, it looks like having more "good" players shortens the game by a few turns, and confers approximately a 2:1 advantage to a good player.
+
+I'm not sure what other strategies I can code. I think the next one would be to keep track of what cards have been shown to other players, then choose from those before showing a new card. That would reduce the amount of information being leaked. Another one might be to introduce probabilistic accusations, if there's ever a way to get more than 50% certainty. Another might be to start modeling not just the envelope, but the other players hands, although I'm not sure that actually adds information to the simulation. It might be able to tell you a better choice to guess at though, because you can guess solutions that other players haven't yet. 
+
+Some things I'm not sure make sense here, but might if I were playing with human players, like paying attention to guessing patterns. Cards that humans use over and over might be cards in hand or cards in the envelope. Other human strategies that I've used include constructing suggestions where only 1 piece of information is being tested at a time, but I'm not sure of the efficacy of that strategy. Being shown a card is worth less than not being shown a card. Another human strategy might include 2nd-level deception, intentionally crafting suggestions to deceive other players.
+
+Naively, if you test 1 card at a time, it would take you 6 + 6 + 9 = 21 turns, minus whatever cards you hold in your hand, which is (21 - 3) / n_players. Testing more than 1 card at a time tends to improve that, but it demands increased mental capability to keep track of things.
+
+|                              |   BetterConstraintAIPlayerp1 |   RevealLessInfoAIPlayerp1 |   RevealLessInfoBetterAIPlayerp1 |   SimpleConstraintAIPlayerp1 |
+|:-----------------------------|-----------------------------:|---------------------------:|---------------------------------:|-----------------------------:|
+| BetterConstraintAIPlayer     |                   nan        |                   0.282051 |                          1.04082 |                     0.369863 |
+| RevealLessInfoAIPlayer       |                     2.7037   |                 nan        |                          5.66667 |                     0.785714 |
+| RevealLessInfoBetterAIPlayer |                     0.960784 |                   0.204819 |                        nan       |                     0.190476 |
+| SimpleConstraintAIPlayer     |                     3.16667  |                   0.923077 |                          4.26316 |                   nan        |

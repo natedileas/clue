@@ -123,11 +123,9 @@ class SimpleConstraintAIPlayer(Player):
             return Pass(self.name)
         else:
             card_to_show = random.sample(suggested_cards_in_hand, k=1)[0]
-            # suggesting_player.get_shown(self.name, card_to_show)
             return ShowedCard(self.name, card_to_show)
 
     def take_turn(self):
-        # TODO need to inspect events? and add somenotinsetconstraints
         solutions = self.problem.getSolutions()
         print(f'{self.name}', len(solutions), solutions if len(solutions) < 10 else None)
 
@@ -141,11 +139,63 @@ class SimpleConstraintAIPlayer(Player):
 
 
 class BetterConstraintAIPlayer(SimpleConstraintAIPlayer):
-    """ keep track of what card other players have revealed. """
+    """ keep track of what cards other players have potentially revealed to each other. """
 
     def suggestion_disproved(self, suggestion, disproving_player_name):
         self.problem.addConstraint(
             constraint.SomeNotInSetConstraint(suggestion.cards))
+
+
+class RevealLessInfoAIPlayer(SimpleConstraintAIPlayer):
+    """ Keep track of which cards which have been revealed. """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.revealed_cards = []
+
+    def respond_to_suggestion(self, suggestion):
+        suggested_cards_in_hand = [
+            c for c in self.hand if c in suggestion.cards]
+
+        if not any(suggested_cards_in_hand):
+            return Pass(self.name)
+        else:
+            previously_revealed_cards = [
+                c for c in suggested_cards_in_hand if c in self.revealed_cards]
+
+            if previously_revealed_cards:
+                card_to_show = random.sample(previously_revealed_cards, k=1)[0]
+            else:
+                card_to_show = random.sample(suggested_cards_in_hand, k=1)[0]
+                self.revealed_cards.append(card_to_show)
+
+            return ShowedCard(self.name, card_to_show)
+
+
+class RevealLessInfoBetterAIPlayer(BetterConstraintAIPlayer):
+    """ Keep track of which cards which have been revealed. """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.revealed_cards = []
+
+    def respond_to_suggestion(self, suggestion):
+        suggested_cards_in_hand = [
+            c for c in self.hand if c in suggestion.cards]
+
+        if not any(suggested_cards_in_hand):
+            return Pass(self.name)
+        else:
+            previously_revealed_cards = [
+                c for c in suggested_cards_in_hand if c in self.revealed_cards]
+
+            if previously_revealed_cards:
+                card_to_show = random.sample(previously_revealed_cards, k=1)[0]
+            else:
+                card_to_show = random.sample(suggested_cards_in_hand, k=1)[0]
+                self.revealed_cards.append(card_to_show)
+
+            return ShowedCard(self.name, card_to_show)
 
 
 @dataclass
@@ -195,7 +245,10 @@ class Clue:
         self.turncount = 0
         self.setup(*args, **kwargs)
 
-    def setup(self, n_real_players=1, n_players=4, aiplayer=itertools.cycle([SimpleConstraintAIPlayer])):
+    def setup(self, n_real_players=1, n_players=4, aiplayer=itertools.cycle([SimpleConstraintAIPlayer]), seed=None):
+        if seed:
+            random.seed(seed)
+
         people, weapons, rooms = list(Clue.people), list(
             Clue.weapons), list(Clue.rooms)
         p = random.sample(people, k=1)[0]
@@ -257,7 +310,10 @@ class Clue:
 
         if accusation.cards == self.clues:
             print(f'Player {accusation.player_name} has won!')
-            raise Win(accusation.player_name)
+            win = Win(accusation.player_name)
+            win.player = [p for p in self.players if p.name ==
+                          accusation.player_name][0]
+            raise win
         else:
             print(f'Player {accusation.player_name} has made an incorrect accusation. They lose.')
 
@@ -297,6 +353,10 @@ def run_experiment(n_runs=100, **kwargs):
     import sys
     import time
 
+    experiment = {}
+    experiment['kwargs'] = kwargs.copy()
+    experiment['kwargs']['n_runs'] = n_runs
+
     with open('test.log', 'w') as f:
         _stdout = sys.stdout
         sys.stdout = f
@@ -306,17 +366,56 @@ def run_experiment(n_runs=100, **kwargs):
         t2 = time.time()
         sys.stdout = _stdout
 
-    print(kwargs)
-    print(n_runs, 'runs in', t2 - t1, 'average = ', (t2 - t1) / n_runs)
-    avg_turns = sum(r.turncount for r in runs) / len(runs)
-    print('Average Turns: ', avg_turns)
+    # print(kwargs)
+    # print(n_runs, 'runs in', t2 - t1, 'average = ', (t2 - t1) / n_runs)
+    experiment['avg_turns'] = round(
+        sum(r.turncount for r in runs) / len(runs), 1)
+    # print('Average Turns: ', avg_turns)
     wins = {}
+
     for r in runs:
         wins.setdefault(str(r.winner), 0)
         wins[str(r.winner)] += 1
 
-    print('Wins:', wins)
-    return wins, avg_turns
+    # print('Wins:', wins)
+    experiment['wins'] = wins
+    return experiment
+
+
+def run_full_compare_experiment(n_runs=100, **kwargs):
+    players = [SimpleConstraintAIPlayer, BetterConstraintAIPlayer,
+               RevealLessInfoAIPlayer, RevealLessInfoBetterAIPlayer]
+
+    import sys
+    import time
+
+    results = {}
+
+    with open('test.log', 'w') as f:
+        _stdout = sys.stdout
+        sys.stdout = f
+        t1 = time.time()
+        for p1, p2 in itertools.permutations(players, 2):
+            aiplayer = itertools.cycle([p1, p2])
+            runs = [Clue(**kwargs, aiplayer=aiplayer).run() for i in range(n_runs)]
+
+            results.setdefault(p1.__name__ + 'p1', {})
+            results[p1.__name__ + 'p1'].setdefault(p2.__name__, 0)
+
+            num = 0
+            denom = 0
+            for r in runs:
+                if r.winner.player.__class__.__name__ == p1.__name__:
+                    num += 1
+                else:
+                    denom += 1
+
+            results[p1.__name__ + 'p1'][p2.__name__] = num / denom
+
+        t2 = time.time()
+        sys.stdout = _stdout
+
+    return results
 
 
 if __name__ == '__main__':
@@ -327,15 +426,25 @@ if __name__ == '__main__':
     allgoodplayer = itertools.cycle([BetterConstraintAIPlayer])
     nogoodplayer = itertools.cycle([SimpleConstraintAIPlayer])
 
-    run_experiment(n_runs=1000, n_real_players=0,
-                   n_players=3, aiplayer=nogoodplayer)
-    run_experiment(n_runs=1000, n_real_players=0,
-                   n_players=3, aiplayer=onegoodplayer)
-    run_experiment(n_runs=1000, n_real_players=0,
-                   n_players=3, aiplayer=allgoodplayer)
-    run_experiment(n_runs=100, n_real_players=0,
-                   n_players=4, aiplayer=onegoodplayer)
-    run_experiment(n_runs=100, n_real_players=0,
-                   n_players=5, aiplayer=onegoodplayer)
-    run_experiment(n_runs=100, n_real_players=0,
-                   n_players=6, aiplayer=onegoodplayer)
+    # run_experiment(n_runs=1000, n_real_players=0,
+    #                n_players=3, aiplayer=nogoodplayer)
+    # run_experiment(n_runs=1000, n_real_players=0,
+    #                n_players=3, aiplayer=onegoodplayer)
+    # run_experiment(n_runs=1000, n_real_players=0,
+    #                n_players=3, aiplayer=allgoodplayer)
+    # run_experiment(n_runs=100, n_real_players=0,
+    #                n_players=4, aiplayer=onegoodplayer)
+    # run_experiment(n_runs=100, n_real_players=0,
+    #                n_players=5, aiplayer=onegoodplayer)
+    # run_experiment(n_runs=100, n_real_players=0,
+    #                n_players=6, aiplayer=onegoodplayer)
+
+    # ex = run_experiment(n_runs=100, n_players=3, n_real_players=0, aiplayer=itertools.cycle(
+    #     [RevealLessInfoAIPlayer, SimpleConstraintAIPlayer, SimpleConstraintAIPlayer]))
+    # print(ex)
+
+    ex = run_full_compare_experiment(n_real_players=0, n_players=4)
+    print(ex)
+
+    import pandas as pd
+    df = pd.DataFrame(ex)
